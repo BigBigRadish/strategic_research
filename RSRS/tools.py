@@ -47,7 +47,7 @@ def slope_method1(df,n):
         param=ols_regression(x,y,eps)
         slope_param.append(param[1])
     df1['day_slope']=slope_param
-    return df1
+    return df1.reset_index()
 #方法二：
 '''
 ）总体数据的均值（μ）
@@ -85,31 +85,58 @@ def ols_regression(x,y,eps):#ols回归
     model = sm.OLS(y-eps,X)
     results = model.fit() 
     return(results.params) 
-def apply_strategic1(n_df,slope1,slope2):
-    buy_sell=[]#是否卖出或者买入
-    origin_price=n_df.iloc[0].open_price_today
+def apply_strategic1(n_df,slope1,slope2):#回测
+    buy_sell=[]#是否卖出或者买入或者其他状态
+#     origin_price=n_df.iloc[0].closed_price_today
     day_slope=n_df['day_slope'].values#斜率
-    for i in day_slope[1:]:
-        if i>slope1:
+    state='观望'
+    for i in day_slope:
+        if i>slope1 and state=='观望':
             buy_sell.append('买入')
-            break
-        else:
-            buy_sell.append('观望')
-        j++
-        
-            
-    
-def calcu_net_value(transaction_df,method='slope'):
+            state='持仓'
+        elif i<slope2 and state=='持仓':
+            buy_sell.append('卖出')
+            state='观望'
+        else :
+            buy_sell.append(state)
+    n_df['buy_sell']=buy_sell
+    return n_df
+  
+def calcu_net_value(transaction_df,method='slope'):#计算净值
     strategic='slope'
     if strategic==method:
-        apply_strategic1(transaction_df)
-    
+        net_value=[]
+        tr_df=apply_strategic1(transaction_df,1,0.75)
+        price_buy_sell=tr_df[['closed_price_today','buy_sell']]
+        origin_price=price_buy_sell.closed_price_today.iloc[0]
+        for index,j in price_buy_sell.iterrows():
+            if j['buy_sell']=='买入':
+                origin_price=j['closed_price_today']
+            net_value.append(j['closed_price_today']/ origin_price)
+        tr_df[method+'_net_value']=net_value
+        print(net_value)
+def base_net_value(df1):
+    #     以第一交易日2009年1月5日收盘价为基点，计算净值
+    df_new=df1.closed_price_today/df.closed_price_today.iloc[0]
+    print(df_new)
+    #将上述股票在回测期间内的净值可视化
+    df_new.plot(figsize=(16,10))
+    #图标题
+    plt.title(u'stock change',fontsize=12)
+    #设置x轴坐标
+    my_ticks = df1.date
+    plt.xticks(np.arange(len(my_ticks)),my_ticks,fontsize=1)
+    #去掉上、右图的线
+    ax=plt.gca()
+    ax.spines['right'].set_color('none')
+    ax.spines['top'].set_color('none')
+    plt.show()   
        
 if __name__=='__main__':
     file_path='./data/000905.SH.mat'
     df=mat_to_df(file_path)
     df.date=df.date.apply(lambda i : str(int(i)))
-#     df1=slope_method1(df,18)
+    df1=slope_method1(df,18)
 #     plt.plot(df1['lowest_price_today'].values,df1['highest_price_today'])
 #     plt.show()
 #     df1.date=df1.date.apply(lambda i : str(int(i)))
@@ -123,26 +150,14 @@ if __name__=='__main__':
      RSRS 斜率指标交易策略为： 1. 计算 RSRS 斜率。 2. 如果斜率大于 1，则买入持有。 3. 如果斜率小于 0.75，则卖出手中持股平仓。 
      
     '''
-    df2=slop_method2(df,18,600)
-    df2.z_score=df2.z_score.apply(lambda i:round(i,2))
-    pfr=pandas_profiling.ProfileReport(pd.DataFrame(df2.z_score).reset_index())
+#     df2=slop_method2(df,18,600)
+#     df2.z_score=df2.z_score.apply(lambda i:round(i,2))
+#     pfr=pandas_profiling.ProfileReport(pd.DataFrame(df2.z_score).reset_index())
 #     pfr.to_file('z_score_report.html')#生成标准分报告
     '''
             则 RSRS 标准分交易策略为： 1. 根据斜率计算标准分（参数 N=18,M=600）。 2. 如果标准分大于 S（参数 S=1），则买入持有。 3. 如果标准分小于-S，则卖出平仓。
     '''
-#     以第一交易日2009年1月5日收盘价为基点，计算净值
-    df_new=df2.closed_price_today/df.closed_price_today.iloc[0]
-    print(df_new)
-    #将上述股票在回测期间内的净值可视化
-    df_new.plot(figsize=(16,10))
-    #图标题
-    plt.title(u'stock change',fontsize=12)
-    #设置x轴坐标
-    my_ticks = df_new.index
-    plt.xticks(my_ticks,fontsize=1)
-    #去掉上、右图的线
-    ax=plt.gca()
-    ax.spines['right'].set_color('none')
-    ax.spines['top'].set_color('none')
-    plt.show()
+#     exchange_detail1=apply_strategic1(df1,1,0.75)
     
+#     base_net_value(df1)
+    calcu_net_value(df1,method='slope')
