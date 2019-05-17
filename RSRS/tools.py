@@ -66,7 +66,7 @@ def slop_method2(df,n,m):#N日的最高价序列与最低价序列,取前 M日�
     length=df1.shape[0]
     z_scores=[]
     df1=df1.reset_index()#重建索引
-    df2=df1[m+1:].reset_index()
+    df2=df1[m+1:]
     for j in range(0,length-m-1):
         m_day_df=df1.iloc[j:j+m]
         print()
@@ -85,36 +85,61 @@ def ols_regression(x,y,eps):#ols回归
     model = sm.OLS(y-eps,X)
     results = model.fit() 
     return(results.params) 
-def apply_strategic1(n_df,slope1,slope2):#回测
+def apply_strategic1(n_df,slope1,slope2):#回测1
     buy_sell=[]#是否卖出或者买入或者其他状态
 #     origin_price=n_df.iloc[0].closed_price_today
     day_slope=n_df['day_slope'].values#斜率
-    state='观望'
+    state='空仓'
     for i in day_slope:
         if i>slope1 and state=='观望':
             buy_sell.append('买入')
             state='持仓'
         elif i<slope2 and state=='持仓':
             buy_sell.append('卖出')
-            state='观望'
+            state='空仓'
         else :
             buy_sell.append(state)
     n_df['buy_sell']=buy_sell
     return n_df
+#策略2
+def apply_strategic2(mn_df,z_score1,z_score2):#回测
+    buy_sell=[]#是否卖出或者买入或者其他状态
+#     origin_price=n_df.iloc[0].closed_price_today
+    day_slope=mn_df['z_score'].values#斜率
+    state='空仓'
+    for i in day_slope:
+        if i>z_score1 and state=='观望':
+            buy_sell.append('买入')
+            state='持仓'
+        elif i<z_score2 and state=='持仓':
+            buy_sell.append('卖出')
+            state='空仓'
+        else :
+            buy_sell.append(state)
+    mn_df['buy_sell']=buy_sell
+    return mn_df
   
 def calcu_net_value(transaction_df,method='slope'):#计算净值
     strategic='slope'
     if strategic==method:
-        net_value=[]
         tr_df=apply_strategic1(transaction_df,1,0.75)
-        price_buy_sell=tr_df[['closed_price_today','buy_sell']]
-        origin_price=price_buy_sell.closed_price_today.iloc[0]
-        for index,j in price_buy_sell.iterrows():
-            if j['buy_sell']=='买入':
-                origin_price=j['closed_price_today']
-            net_value.append(j['closed_price_today']/ origin_price)
-        tr_df[method+'_net_value']=net_value
-        print(net_value)
+    else:
+        tr_df=apply_strategic2(transaction_df,0.75,-0.75)
+    Net_value=[]
+    price_buy_sell=tr_df[['closed_price_today','buy_sell']]
+    origin_price=price_buy_sell.closed_price_today.iloc[0]
+    net_value=1
+    for index,j in price_buy_sell.iterrows():
+        if(j['buy_sell']!='空仓'):
+            net_value*=j['closed_price_today']/origin_price
+            Net_value.append(net_value)
+        else:
+            net_value1=net_value*j['closed_price_today']/origin_price 
+            Net_value.append(net_value1)       
+    print(Net_value)                     
+    tr_df[method+'_net_value']=Net_value
+    return tr_df
+    tr_df=apply_strategic2(transaction_df,1,-1)
 def base_net_value(df1):
     #     以第一交易日2009年1月5日收盘价为基点，计算净值
     df_new=df1.closed_price_today/df.closed_price_today.iloc[0]
@@ -136,13 +161,13 @@ if __name__=='__main__':
     file_path='./data/000905.SH.mat'
     df=mat_to_df(file_path)
     df.date=df.date.apply(lambda i : str(int(i)))
-    df1=slope_method1(df,18)
+#     df1=slope_method1(df,18)
 #     plt.plot(df1['lowest_price_today'].values,df1['highest_price_today'])
 #     plt.show()
 #     df1.date=df1.date.apply(lambda i : str(int(i)))
 #     print(df1.date)
 #     df1.reset_index().to_csv('./data/000905.SH_1.csv',)
-#     df1=slope_method1(df,18)
+    df1=slope_method1(df,18)
 #     df1.day_slope=df1.day_slope.apply(lambda i:round(i,2))
 #     pfr=pandas_profiling.ProfileReport(pd.DataFrame(df1.day_slope).reset_index())
 #     pfr.to_file('report.html')#生成斜率报告
@@ -150,7 +175,7 @@ if __name__=='__main__':
      RSRS 斜率指标交易策略为： 1. 计算 RSRS 斜率。 2. 如果斜率大于 1，则买入持有。 3. 如果斜率小于 0.75，则卖出手中持股平仓。 
      
     '''
-#     df2=slop_method2(df,18,600)
+    df2=slop_method2(df,18,600)
 #     df2.z_score=df2.z_score.apply(lambda i:round(i,2))
 #     pfr=pandas_profiling.ProfileReport(pd.DataFrame(df2.z_score).reset_index())
 #     pfr.to_file('z_score_report.html')#生成标准分报告
@@ -160,4 +185,5 @@ if __name__=='__main__':
 #     exchange_detail1=apply_strategic1(df1,1,0.75)
     
 #     base_net_value(df1)
-    calcu_net_value(df1,method='slope')
+    calcu_net_value(df1[600+1:],method='slope')
+    calcu_net_value(df2,method='slope')
