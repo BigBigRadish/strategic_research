@@ -201,7 +201,53 @@ def plot_net_value(base_net,slope_net,z_score_net,date):
     plt.ylabel('net_value')
     plt.xlabel('date')
     plt.show() 
-       
+#统计指数
+def statics_index(s_df):  
+    '''
+年化收益，夏普比率，最大回撤，持仓总天数，交易次数，平均持仓数，获利天数，亏损天数，胜率，平均盈利率，平均亏损率，平均盈亏比，
+盈利次数，亏损次数，单次最大盈利，单次最大亏损，胜率（按次），平均盈利率，平均亏损率，平均盈亏比(按次）
+年收益率=[（投资内收益 / 本金）/ 投资天数] * 365 ×100%
+夏普比率=*代表投资人每多承担一分风险，可以拿到几分报酬；
+---单位风险所获得的超额回报率
+*该比率越高，策略承担单位风险得到的超额回报率越高。
+所以说夏普比率是越高越好滴..
+Sharpe_ratio= R_p-R_f/sigma_p
+其中，R_p为年化收益率， R_f 是无风险收益率，sigma_p为年化波动率
+    '''
+    ### 区间累计收益率(绝对收益率)
+    total_ret=s_df['slope_net_value']-1
+    TR=pd.DataFrame(total_ret.values,columns=['累计收益率'],index=total_ret.index)
+    print(TR)
+    ###年化收益率,假设一年以250交易日计算
+    annual_ret=pow(1+total_ret,250/len(s_df))-1
+#     print(annual_ret)
+    AR=pd.DataFrame(annual_ret.values,columns=['年化收益率'],index=annual_ret.index)
+    print(AR)
+    #定义成函数，减少重复工作
+    def max_drawdown(df):
+        md=((df.cummax()-df)/df.cummax()).max()
+        return round(md,4)
+    md=max_drawdown(s_df['slope_net_value'])
+    #最大回撤率结果：
+    print(md)
+    #计算每日收益率
+    #收盘价缺失值（停牌），使用前值代替
+    slope_net_value_1=s_df['slope_net_value'].values
+    rets=[0]
+    for i in range(0,len(slope_net_value_1)-1):
+        ret=(slope_net_value_1[i+1]-slope_net_value_1[i])/slope_net_value_1[i]
+        rets.append(ret)
+    s_df['rets']=rets
+    #假设无风险收益率为年化3%
+    exReturn=s_df.rets-0.03/250
+    #计算夏普比率
+    sharperatio=np.sqrt(len(exReturn))*exReturn.mean()/exReturn.std()
+    print(sharperatio)
+    #夏普比率的输出结果
+#     SHR=pd.DataFrame(sharperatio,columns=['夏普比率'])
+#     print(SHR)
+        
+        
 if __name__=='__main__':
     file_path='./data/000905.SH.mat'
     df=mat_to_df(file_path)
@@ -241,5 +287,6 @@ if __name__=='__main__':
     date=df3.date.values
 #     print(df3.base_value)
 # #     print( net_value_z_score)
-    plot_net_value(df3.base_value,net_value_slope,net_value_z_score,date)
+#     plot_net_value(df3.base_value,net_value_slope,net_value_z_score,date)
+    statics_index(calcu_net_value(df1,method='slope'))
     
