@@ -11,6 +11,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 import  pandas_profiling 
+from decimal import *
+import threading
+import functools
+import time
+def synchronized(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        with self.lock:
+            return func(self, *args, **kwargs)
+    return wrapper
+
 from scipy.io import loadmat#用于加载mat文件
 def mat_to_df(file_path):
     data_m= loadmat(file_path)#mat-->dict字典。
@@ -38,7 +49,7 @@ high= alpha + beta*low + epsilon， epsilon ~ N(0,sigma) （1)
 def slope_method1(df,n):
     length=df.shape[0]
     slope_param=[]
-    df1=df.iloc[n:]
+    df1_=df.iloc[n:]
     for i in range(0,length-n):
         n_day_df=df.iloc[i:i+n]
         x=n_day_df['lowest_price_today'].values
@@ -46,8 +57,10 @@ def slope_method1(df,n):
         eps= np.random.normal(size=n)
         param=ols_regression(x,y,eps)
         slope_param.append(param[1])
-    df1['day_slope']=slope_param
-    return df1.reset_index()
+    df1_['day_slope']=slope_param
+    df1_['day_slope']=df1_['day_slope'].apply(lambda i:round(i,2))#注意精度
+    df1_=df1_.reset_index()
+    return df1_
 #方法二：
 '''
 ）总体数据的均值（μ）
@@ -62,22 +75,24 @@ def slope_method1(df,n):
 '''
 #方法二,取其标准分作为指标值。 当日标准分指标的计算方式
 def slop_method2(df,n,m):#N日的最高价序列与最低价序列,取前 M日的斜率时间序列。
-    df1=slope_method1(df,n)#求出斜率
-    length=df1.shape[0]
+    df1_=slope_method1(df,n)#求出斜率
+    length=df1_.shape[0]
     z_scores=[]
-    df1=df1.reset_index()#重建索引
-    df2=df1[m+1:]
-    for j in range(0,length-m-1):
-        m_day_df=df1.iloc[j:j+m]
-        print()
+    df2=df1_[m:].reset_index()
+    for j in range(0,length-m):
+        m_day_df=df1_.iloc[j:j+m]
         slope=m_day_df['day_slope'].values
-        avg=np.mean(slope)
-        std=np.std(slope)
-        print(avg,std)
-        z_score=(df2['day_slope'].values[j]-avg)/std
-        print(z_score)
+        avg=round(np.mean(slope),2)
+        std=round(np.std(slope),2)
+#         print(avg,std)
+#         print(df2['day_slope'].values)
+#         print(df2['day_slope'].values[j])
+        z_score=round((df2['day_slope'].values[j]-avg)/std,2)
+#         print(z_score)
         z_scores.append(z_score)
     df2['z_score']=z_scores
+    df2['z_score']=df2['z_score'].apply(lambda i:round(i,2))
+#     df2=df2
     return df2
     
 def ols_regression(x,y,eps):#ols回归
@@ -91,7 +106,7 @@ def apply_strategic1(n_df,slope1,slope2):#回测1
     day_slope=n_df['day_slope'].values#斜率
     state='空仓'
     for i in day_slope:
-        if i>slope1 and state=='观望':
+        if i>slope1 and state=='空仓':
             buy_sell.append('买入')
             state='持仓'
         elif i<slope2 and state=='持仓':
@@ -105,10 +120,10 @@ def apply_strategic1(n_df,slope1,slope2):#回测1
 def apply_strategic2(mn_df,z_score1,z_score2):#回测
     buy_sell=[]#是否卖出或者买入或者其他状态
 #     origin_price=n_df.iloc[0].closed_price_today
-    day_slope=mn_df['z_score'].values#斜率
+    z_score=mn_df['z_score'].values#斜率
     state='空仓'
-    for i in day_slope:
-        if i>z_score1 and state=='观望':
+    for i in z_score:
+        if i>z_score1 and state=='空仓':
             buy_sell.append('买入')
             state='持仓'
         elif i<z_score2 and state=='持仓':
@@ -116,58 +131,91 @@ def apply_strategic2(mn_df,z_score1,z_score2):#回测
             state='空仓'
         else :
             buy_sell.append(state)
+#     print(buy_sell)
     mn_df['buy_sell']=buy_sell
-    return mn_df
-  
-def calcu_net_value(transaction_df,method='slope'):#计算净值
+    return mn_df 
+def calcu_net_value(transaction_df,method):#计算净值
     strategic='slope'
     if strategic==method:
         tr_df=apply_strategic1(transaction_df,1,0.75)
     else:
-        tr_df=apply_strategic2(transaction_df,0.75,-0.75)
+        tr_df=apply_strategic2(transaction_df,1,-1)
+#     print(tr_df)
     Net_value=[]
     price_buy_sell=tr_df[['closed_price_today','buy_sell']]
+#     print(price_buy_sell)
     origin_price=price_buy_sell.closed_price_today.iloc[0]
+#     print(origin_price)
+#     print(price_buy_sell.closed_price_today)
+#     print(origin_price)
     net_value=1
     for index,j in price_buy_sell.iterrows():
-        if(j['buy_sell']!='空仓'):
-            net_value*=j['closed_price_today']/origin_price
+#         print(index,j)
+#         print(j['buy_sell'])
+        if (j['buy_sell']=='买入'):
+            origin_price=j['closed_price_today']
+            print(origin_price)
+        else:
+            pass
+        if(j['buy_sell'] not in ['空仓','买入']):#不是空仓正常算净值
+#             print(origin_price)
+            net_value=(j['closed_price_today']/origin_price)
+#             print(net_value)
             Net_value.append(net_value)
         else:
-            net_value1=net_value*j['closed_price_today']/origin_price 
+#             print(net_value)
+            net_value1=net_value*(j['closed_price_today']/origin_price)
+#             print(net_value1)
             Net_value.append(net_value1)       
-    print(Net_value)                     
+#     print(Net_value)                     
     tr_df[method+'_net_value']=Net_value
+#     print(tr_df[method+'_net_value'])
+#     print(Net_value)
+    tr_df.to_csv('000905.SH_z_score_net.csv')
     return tr_df
-    tr_df=apply_strategic2(transaction_df,1,-1)
-def base_net_value(df1):
-    #     以第一交易日2009年1月5日收盘价为基点，计算净值
-    df_new=df1.closed_price_today/df.closed_price_today.iloc[0]
-    print(df_new)
+
+def plot_net_value(base_net,slope_net,z_score_net,date):
+    z_net=list(z_score_net)
+    print(len(slope_net))
+    x=np.arange(len(z_net))
+    base_net=list(base_net)
+    slope_net=list(slope_net)
+    fig, ax = plt.subplots(1, 1)
     #将上述股票在回测期间内的净值可视化
-    df_new.plot(figsize=(16,10))
+    plt.plot(date,slope_net,color='yellow',label='slope_net',)
+    plt.plot(date,base_net,color='blue',label='base_net')
+    plt.plot(date,z_net,color='red',label='z_score_net')
+    
     #图标题
-    plt.title(u'stock change',fontsize=12)
+    plt.title(u'net_value',fontsize=10)
     #设置x轴坐标
-    my_ticks = df1.date
-    plt.xticks(np.arange(len(my_ticks)),my_ticks,fontsize=1)
+#     myticks=z_score_net.date
+#     plt.xticks(np.arange(len(z_score_net)),z_score_net,fontsize=1,color='blue')
     #去掉上、右图的线
-    ax=plt.gca()
-    ax.spines['right'].set_color('none')
-    ax.spines['top'].set_color('none')
-    plt.show()   
+    for label in ax.get_xticklabels():
+        label.set_visible(False)
+    for label in ax.get_xticklabels()[::200]:
+        label.set_visible(True)
+
+    plt.legend()
+    plt.ylabel('net_value')
+    plt.xlabel('date')
+    plt.show() 
        
 if __name__=='__main__':
     file_path='./data/000905.SH.mat'
     df=mat_to_df(file_path)
     df.date=df.date.apply(lambda i : str(int(i)))
-#     df1=slope_method1(df,18)
+    df3=df[618:].copy().reset_index()
+    df1=slope_method1(df[600:],18)
+    df1=df1.drop(['index'],axis=1)
 #     plt.plot(df1['lowest_price_today'].values,df1['highest_price_today'])
 #     plt.show()
 #     df1.date=df1.date.apply(lambda i : str(int(i)))
 #     print(df1.date)
 #     df1.reset_index().to_csv('./data/000905.SH_1.csv',)
-    df1=slope_method1(df,18)
+#     df1=slope_method1(df,18)
+#     print(df1)
 #     df1.day_slope=df1.day_slope.apply(lambda i:round(i,2))
 #     pfr=pandas_profiling.ProfileReport(pd.DataFrame(df1.day_slope).reset_index())
 #     pfr.to_file('report.html')#生成斜率报告
@@ -175,7 +223,9 @@ if __name__=='__main__':
      RSRS 斜率指标交易策略为： 1. 计算 RSRS 斜率。 2. 如果斜率大于 1，则买入持有。 3. 如果斜率小于 0.75，则卖出手中持股平仓。 
      
     '''
-    df2=slop_method2(df,18,600)
+    df2_=slop_method2(df,18,600)
+    df2_=df2_.drop(['level_0','index'],axis=1)
+#     print(df2_)
 #     df2.z_score=df2.z_score.apply(lambda i:round(i,2))
 #     pfr=pandas_profiling.ProfileReport(pd.DataFrame(df2.z_score).reset_index())
 #     pfr.to_file('z_score_report.html')#生成标准分报告
@@ -185,5 +235,11 @@ if __name__=='__main__':
 #     exchange_detail1=apply_strategic1(df1,1,0.75)
     
 #     base_net_value(df1)
-    calcu_net_value(df1[600+1:],method='slope')
-    calcu_net_value(df2,method='slope')
+    net_value_slope=calcu_net_value(df1,method='slope').slope_net_value
+    net_value_z_score=calcu_net_value(df2_,method='z_score').z_score_net_value
+    df3['base_value']=df3.closed_price_today/df1.closed_price_today.iloc[0]
+    date=df3.date.values
+#     print(df3.base_value)
+# #     print( net_value_z_score)
+    plot_net_value(df3.base_value,net_value_slope,net_value_z_score,date)
+    
