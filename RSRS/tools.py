@@ -15,12 +15,6 @@ from decimal import *
 import threading
 import functools
 import time
-def synchronized(func):
-    @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        with self.lock:
-            return func(self, *args, **kwargs)
-    return wrapper
 
 from scipy.io import loadmat#用于加载mat文件
 def mat_to_df(file_path):
@@ -60,7 +54,7 @@ def slope_method1(df,n):
     df1_['day_slope']=slope_param
     df1_['day_slope']=df1_['day_slope'].apply(lambda i:round(i,2))#注意精度
     df1_=df1_.reset_index()
-    return df1_
+    return df1_.copy()
 #方法二：
 '''
 ）总体数据的均值（μ）
@@ -91,9 +85,9 @@ def slop_method2(df,n,m):#N日的最高价序列与最低价序列,取前 M日�
 #         print(z_score)
         z_scores.append(z_score)
     df2['z_score']=z_scores
-    df2['z_score']=df2['z_score'].apply(lambda i:round(i,2))
+    df2['z_score']=df2['z_score'].apply(lambda i:round(i,2))#多核加速
 #     df2=df2
-    return df2
+    return df2.copy()
     
 def ols_regression(x,y,eps):#ols回归
     X=sm.add_constant(x) 
@@ -104,45 +98,46 @@ def apply_strategic1(n_df,slope1,slope2):#回测1
     buy_sell=[]#是否卖出或者买入或者其他状态
 #     origin_price=n_df.iloc[0].closed_price_today
     day_slope=n_df['day_slope'].values#斜率
-    state='空仓'
+    state=u'空仓'
     for i in day_slope:
-        if i>slope1 and state=='空仓':
-            buy_sell.append('买入')
-            state='持仓'
-        elif i<slope2 and state=='持仓':
-            buy_sell.append('卖出')
-            state='空仓'
+        if i>slope1 and state==u'空仓':
+            buy_sell.append(u'买入')
+            state=u'持仓'
+        elif i<slope2 and state==u'持仓':
+            buy_sell.append(u'卖出')
+            state=u'空仓'
         else :
             buy_sell.append(state)
     n_df['buy_sell']=buy_sell
-    return n_df
+    return n_df.copy()
 #策略2
-def apply_strategic2(mn_df,z_score1,z_score2):#回测
+def apply_strategic2(mn_df,z_score1,z_score2):#回测2
     buy_sell=[]#是否卖出或者买入或者其他状态
 #     origin_price=n_df.iloc[0].closed_price_today
     z_score=mn_df['z_score'].values#斜率
-    state='空仓'
+    state=u'空仓'
     for i in z_score:
-        if i>z_score1 and state=='空仓':
-            buy_sell.append('买入')
-            state='持仓'
-        elif i<z_score2 and state=='持仓':
-            buy_sell.append('卖出')
-            state='空仓'
+        if i>z_score1 and state==u'空仓':
+            buy_sell.append(u'买入')
+            state=u'持仓'
+        elif i<z_score2 and state==u'持仓':
+            buy_sell.append(u'卖出')
+            state=u'空仓'
         else :
             buy_sell.append(state)
 #     print(buy_sell)
     mn_df['buy_sell']=buy_sell
-    return mn_df 
+    return mn_df.copy()
+
 def calcu_net_value(transaction_df,method):#计算净值
     strategic='slope'
     if strategic==method:
-        tr_df=apply_strategic1(transaction_df,1,0.75)
+        tr_df=apply_strategic1(transaction_df,0.75,0.6)
     else:
         tr_df=apply_strategic2(transaction_df,1,-1)
 #     print(tr_df)
     Net_value=[]
-    price_buy_sell=tr_df[['closed_price_today','buy_sell']]
+    price_buy_sell=tr_df[['closed_price_today','buy_sell']].copy()
 #     print(price_buy_sell)
     origin_price=price_buy_sell.closed_price_today.iloc[0]
 #     print(origin_price)
@@ -152,12 +147,7 @@ def calcu_net_value(transaction_df,method):#计算净值
     for index,j in price_buy_sell.iterrows():
 #         print(index,j)
 #         print(j['buy_sell'])
-        if (j['buy_sell']=='买入'):
-            origin_price=j['closed_price_today']
-            print(origin_price)
-        else:
-            pass
-        if(j['buy_sell'] not in ['空仓','买入']):#不是空仓正常算净值
+        if(j['buy_sell'] not in [u'空仓']):#不是空仓正常算净值
 #             print(origin_price)
             net_value=(j['closed_price_today']/origin_price)
 #             print(net_value)
@@ -166,14 +156,19 @@ def calcu_net_value(transaction_df,method):#计算净值
 #             print(net_value)
             net_value1=net_value*(j['closed_price_today']/origin_price)
 #             print(net_value1)
-            Net_value.append(net_value1)       
+            Net_value.append(net_value1)
+        if (j['buy_sell']==u'买入'):
+            origin_price=j['closed_price_today']
+#             print(origin_price)
+        else:
+            pass     
 #     print(Net_value)                     
-    tr_df[method+'_net_value']=Net_value
+    tr_df['net_value']=Net_value
 #     print(tr_df[method+'_net_value'])
 #     print(Net_value)
-    tr_df.to_csv('000905.SH_z_score_net.csv')
+#     tr_df.to_csv('000905.SH_z_score_net.csv')
     return tr_df
-
+#画净值图
 def plot_net_value(base_net,slope_net,z_score_net,date):
     z_net=list(z_score_net)
     print(len(slope_net))
@@ -182,12 +177,12 @@ def plot_net_value(base_net,slope_net,z_score_net,date):
     slope_net=list(slope_net)
     fig, ax = plt.subplots(1, 1)
     #将上述股票在回测期间内的净值可视化
-    plt.plot(date,slope_net,color='yellow',label='slope_net',)
+    plt.plot(date,slope_net.net_value,color='yellow',label='slope_net',)
     plt.plot(date,base_net,color='blue',label='base_net')
-    plt.plot(date,z_net,color='red',label='z_score_net')
+    plt.plot(date,z_net.net_value,color='red',label='z_score_net')
     
     #图标题
-    plt.title(u'net_value',fontsize=10)
+    plt.title('net_value',fontsize=10)
     #设置x轴坐标
 #     myticks=z_score_net.date
 #     plt.xticks(np.arange(len(z_score_net)),z_score_net,fontsize=1,color='blue')
@@ -215,38 +210,98 @@ Sharpe_ratio= R_p-R_f/sigma_p
 其中，R_p为年化收益率， R_f 是无风险收益率，sigma_p为年化波动率
     '''
     ### 区间累计收益率(绝对收益率)
-    total_ret=s_df['slope_net_value']-1
+    total_ret=s_df['net_value']-1
     TR=pd.DataFrame(total_ret.values,columns=['累计收益率'],index=total_ret.index)
-    print(TR)
+#     print(TR)
     ###年化收益率,假设一年以250交易日计算
     annual_ret=pow(1+total_ret,250/len(s_df))-1
 #     print(annual_ret)
     AR=pd.DataFrame(annual_ret.values,columns=['年化收益率'],index=annual_ret.index)
-    print(AR)
+    print('年化：',AR.values[-1])
     #定义成函数，减少重复工作
     def max_drawdown(df):
         md=((df.cummax()-df)/df.cummax()).max()
         return round(md,4)
-    md=max_drawdown(s_df['slope_net_value'])
+    md=max_drawdown(s_df['net_value'])#最大回撤
     #最大回撤率结果：
-    print(md)
+    print('最大回撤：',md)
     #计算每日收益率
     #收盘价缺失值（停牌），使用前值代替
-    slope_net_value_1=s_df['slope_net_value'].values
+    net_value_1=s_df['net_value'].values
     rets=[0]
-    for i in range(0,len(slope_net_value_1)-1):
-        ret=(slope_net_value_1[i+1]-slope_net_value_1[i])/slope_net_value_1[i]
+    for i in range(0,len(net_value_1)-1):
+        ret=(net_value_1[i+1]-net_value_1[i])/net_value_1[i]
         rets.append(ret)
     s_df['rets']=rets
     #假设无风险收益率为年化3%
     exReturn=s_df.rets-0.03/250
     #计算夏普比率
     sharperatio=np.sqrt(len(exReturn))*exReturn.mean()/exReturn.std()
-    print(sharperatio)
+    print('夏普率：',sharperatio)
     #夏普比率的输出结果
 #     SHR=pd.DataFrame(sharperatio,columns=['夏普比率'])
 #     print(SHR)
-        
+    
+    '''
+    按天
+    '''
+    hold_positions=s_df[s_df['buy_sell']!=u'空仓']#持仓
+    #持仓总天数
+    hold_positions_day=len(s_df[s_df['buy_sell']!=u'空仓'])
+    print('持仓天数：',hold_positions_day)
+    #交易次数
+    transaction_times=len(s_df[s_df['buy_sell']==u'买入'])+len(s_df[s_df['buy_sell']==u'卖出'])
+    print('交易次数：',transaction_times)
+    avg_hold_positions=round(float(hold_positions_day)/transaction_times,2)#平均持仓天数
+    print('平均持仓天数：',avg_hold_positions)
+    reap_profit_days=1#获利天数
+    loss_days=0#亏损天数
+    profit_rate_day=[]#平均盈利率列表
+    loss_profit_day=[]#
+    for i in range(0,hold_positions_day-1):
+        if (hold_positions.net_value.values[i+1]>hold_positions.net_value.values[i]):
+            reap_profit_days+=1
+            profit_rate_day.append(round(hold_positions.net_value.values[i+1]/hold_positions.net_value.values[i],5)-1)
+        else:
+            loss_days+=1
+            loss_profit_day.append(1-round(hold_positions.net_value.values[i+1]/hold_positions.net_value.values[i],5))
+    print('获利天数：',reap_profit_days,'亏损天数：',loss_days)
+    win_rate_day=round(float(reap_profit_days)/hold_positions_day,4)#胜率
+    avg_profit_rate=round(np.mean(profit_rate_day),4)#平均盈利率
+    avg_loss_rate=round(np.mean(loss_profit_day),4)#平均亏损率
+    avg_pl_rate=round(avg_profit_rate/avg_loss_rate,2)#平均盈亏比
+    print('胜率（按天）：',win_rate_day,'平均盈利率（按天）：',avg_profit_rate,'平均亏损率（按天）：',avg_loss_rate,'平均盈亏比（按天）：',avg_pl_rate)
+    '''
+    按次
+    '''
+#     buy_net_value=hold_positions[hold_positions['buy_sell']==u'买入'].slope_net_value.values#买入净值
+#     sell_net_value=hold_positions[hold_positions['buy_sell']==u'卖出'].slope_net_value.values#卖出净值
+#     if(len(buy_net_value)>len(sell_net_value)):
+#         buy_net_value=buy_net_value[0:-1]
+#     elif (len(buy_net_value)<len(sell_net_value)):
+#         sell_net_value=sell_net_value[0:-1]
+#     else:
+#         pass
+#     
+    single_rate=[]#单次盈利
+    transaction_detail=hold_positions[hold_positions[hold_positions['buy_sell']!=u'空仓']['buy_sell']!='持仓'].net_value.values
+    single_rate.append(transaction_detail[0]-1)
+    for i in range(0,len(transaction_detail)-1):
+        single_rate.append(round(transaction_detail[i+1]/transaction_detail[i]-1,4))
+#     print(single_rate)
+    profit_rate_times=sum(np.array(single_rate)>0)#盈利次数
+    loss_rate_times=sum(np.array(single_rate)<=0)#损失次数
+    print('盈利次数：',profit_rate_times,'损失次数：',loss_rate_times)
+    single_max_profit,single_max_loss=np.max(single_rate),np.min(single_rate)#单次最大收益和单次最大损失
+    print('单次最大收益：',single_max_profit,'单次最大损失：',single_max_loss)
+    win_rate_times=round(float(profit_rate_times)/transaction_times,4)#胜率
+    print('胜率：',win_rate_times)
+    
+    avg_profit_rate_time=round(np.mean([j for j in single_rate if i>0]),4)#平均盈利率
+    avg_loss_rate_time=round(np.mean([i for i in single_rate if i<=0]),4)#平均损失率
+    avg_plt_rate=abs(round(avg_profit_rate_time/avg_loss_rate_time,2))#平均盈亏比
+    print('平均盈利率（按次）：',avg_profit_rate_time,'平均亏损率（按次）：',avg_loss_rate_time,'平均盈亏比（按次）：',avg_plt_rate)
+
         
 if __name__=='__main__':
     file_path='./data/000905.SH.mat'
@@ -281,12 +336,13 @@ if __name__=='__main__':
 #     exchange_detail1=apply_strategic1(df1,1,0.75)
     
 #     base_net_value(df1)
-    net_value_slope=calcu_net_value(df1,method='slope').slope_net_value
-    net_value_z_score=calcu_net_value(df2_,method='z_score').z_score_net_value
-    df3['base_value']=df3.closed_price_today/df1.closed_price_today.iloc[0]
+#     net_value_slope_df=calcu_net_value(df1,method='slope')#计算slope净值
+    net_value_z_score_df=calcu_net_value(df2_,method='z_score')#计算z_score净值
+#     df3['base_value']=df3.closed_price_today/df1.closed_price_today.iloc[0]
     date=df3.date.values
+#     print(len(net_value_slope_df['buy_sell']))
 #     print(df3.base_value)
 # #     print( net_value_z_score)
 #     plot_net_value(df3.base_value,net_value_slope,net_value_z_score,date)
-    statics_index(calcu_net_value(df1,method='slope'))
+    statics_index(net_value_z_score_df)
     
