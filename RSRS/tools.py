@@ -15,6 +15,7 @@ from decimal import *
 import threading
 import functools
 import time
+from datetime import datetime
 
 from scipy.io import loadmat#用于加载mat文件
 def mat_to_df(file_path):
@@ -132,9 +133,9 @@ def apply_strategic2(mn_df,z_score1,z_score2):#回测2
 def calcu_net_value(transaction_df,method):#计算净值
     strategic='slope'
     if strategic==method:
-        tr_df=apply_strategic1(transaction_df,0.75,0.6)
+        tr_df=apply_strategic1(transaction_df,1,0.75)
     else:
-        tr_df=apply_strategic2(transaction_df,1,-1)
+        tr_df=apply_strategic2(transaction_df,0.9,-0.9)
 #     print(tr_df)
     Net_value=[]
     price_buy_sell=tr_df[['closed_price_today','buy_sell']].copy()
@@ -147,7 +148,7 @@ def calcu_net_value(transaction_df,method):#计算净值
     for index,j in price_buy_sell.iterrows():
 #         print(index,j)
 #         print(j['buy_sell'])
-        if(j['buy_sell'] not in [u'空仓']):#不是空仓正常算净值
+        if(j['buy_sell'] not in [u'空仓',u'买入']):#不是空仓正常算净值
 #             print(origin_price)
             net_value=(j['closed_price_today']/origin_price)
 #             print(net_value)
@@ -170,16 +171,16 @@ def calcu_net_value(transaction_df,method):#计算净值
     return tr_df
 #画净值图
 def plot_net_value(base_net,slope_net,z_score_net,date):
-    z_net=list(z_score_net)
+    z_net=list(z_score_net.net_value)
     print(len(slope_net))
     x=np.arange(len(z_net))
     base_net=list(base_net)
-    slope_net=list(slope_net)
+    slope_net=list(slope_net.net_value)
     fig, ax = plt.subplots(1, 1)
     #将上述股票在回测期间内的净值可视化
-    plt.plot(date,slope_net.net_value,color='yellow',label='slope_net',)
+    plt.plot(date,slope_net,color='yellow',label='slope_net',)
     plt.plot(date,base_net,color='blue',label='base_net')
-    plt.plot(date,z_net.net_value,color='red',label='z_score_net')
+    plt.plot(date,z_net,color='red',label='z_score_net')
     
     #图标题
     plt.title('net_value',fontsize=10)
@@ -261,10 +262,10 @@ Sharpe_ratio= R_p-R_f/sigma_p
     for i in range(0,hold_positions_day-1):
         if (hold_positions.net_value.values[i+1]>hold_positions.net_value.values[i]):
             reap_profit_days+=1
-            profit_rate_day.append(round(hold_positions.net_value.values[i+1]/hold_positions.net_value.values[i],5)-1)
+            profit_rate_day.append(round(hold_positions.net_value.values[i+1]/hold_positions.net_value.values[i],4)-1)
         else:
             loss_days+=1
-            loss_profit_day.append(1-round(hold_positions.net_value.values[i+1]/hold_positions.net_value.values[i],5))
+            loss_profit_day.append(1-round(hold_positions.net_value.values[i+1]/hold_positions.net_value.values[i],4))
     print('获利天数：',reap_profit_days,'亏损天数：',loss_days)
     win_rate_day=round(float(reap_profit_days)/hold_positions_day,4)#胜率
     avg_profit_rate=round(np.mean(profit_rate_day),4)#平均盈利率
@@ -287,7 +288,7 @@ Sharpe_ratio= R_p-R_f/sigma_p
     transaction_detail=hold_positions[hold_positions[hold_positions['buy_sell']!=u'空仓']['buy_sell']!='持仓'].net_value.values
     single_rate.append(transaction_detail[0]-1)
     for i in range(0,len(transaction_detail)-1):
-        single_rate.append(round(transaction_detail[i+1]/transaction_detail[i]-1,4))
+        single_rate.append(round((transaction_detail[i+1]-transaction_detail[i])/transaction_detail[i],4))
 #     print(single_rate)
     profit_rate_times=sum(np.array(single_rate)>0)#盈利次数
     loss_rate_times=sum(np.array(single_rate)<=0)#损失次数
@@ -304,45 +305,51 @@ Sharpe_ratio= R_p-R_f/sigma_p
 
         
 if __name__=='__main__':
-    file_path='./data/000905.SH.mat'
-    df=mat_to_df(file_path)
-    df.date=df.date.apply(lambda i : str(int(i)))
-    df3=df[618:].copy().reset_index()
-    df1=slope_method1(df[600:],18)
-    df1=df1.drop(['index'],axis=1)
-#     plt.plot(df1['lowest_price_today'].values,df1['highest_price_today'])
-#     plt.show()
-#     df1.date=df1.date.apply(lambda i : str(int(i)))
-#     print(df1.date)
-#     df1.reset_index().to_csv('./data/000905.SH_1.csv',)
-#     df1=slope_method1(df,18)
-#     print(df1)
-#     df1.day_slope=df1.day_slope.apply(lambda i:round(i,2))
-#     pfr=pandas_profiling.ProfileReport(pd.DataFrame(df1.day_slope).reset_index())
-#     pfr.to_file('report.html')#生成斜率报告
-    '''
-     RSRS 斜率指标交易策略为： 1. 计算 RSRS 斜率。 2. 如果斜率大于 1，则买入持有。 3. 如果斜率小于 0.75，则卖出手中持股平仓。 
-     
-    '''
-    df2_=slop_method2(df,18,600)
-    df2_=df2_.drop(['level_0','index'],axis=1)
-#     print(df2_)
-#     df2.z_score=df2.z_score.apply(lambda i:round(i,2))
-#     pfr=pandas_profiling.ProfileReport(pd.DataFrame(df2.z_score).reset_index())
-#     pfr.to_file('z_score_report.html')#生成标准分报告
-    '''
-            则 RSRS 标准分交易策略为： 1. 根据斜率计算标准分（参数 N=18,M=600）。 2. 如果标准分大于 S（参数 S=1），则买入持有。 3. 如果标准分小于-S，则卖出平仓。
-    '''
-#     exchange_detail1=apply_strategic1(df1,1,0.75)
     
-#     base_net_value(df1)
-#     net_value_slope_df=calcu_net_value(df1,method='slope')#计算slope净值
-    net_value_z_score_df=calcu_net_value(df2_,method='z_score')#计算z_score净值
-#     df3['base_value']=df3.closed_price_today/df1.closed_price_today.iloc[0]
-    date=df3.date.values
-#     print(len(net_value_slope_df['buy_sell']))
-#     print(df3.base_value)
-# #     print( net_value_z_score)
-#     plot_net_value(df3.base_value,net_value_slope,net_value_z_score,date)
-    statics_index(net_value_z_score_df)
-    
+    file_path=['000016.SH.mat','000300.SH.mat','000905.SH.mat']
+    for f in file_path:
+        df=mat_to_df('./data/'+f)
+        df.date=df.date.apply(lambda i : datetime.strptime(str(int(i)), "%Y%m%d")  )
+    #     df=df[df.date<'2010430']
+        df3=df[618:].copy().reset_index()
+        df1=slope_method1(df[600:],18)
+        df1=df1.drop(['index'],axis=1)
+    #     plt.plot(df1['lowest_price_today'].values,df1['highest_price_today'])
+    #     plt.show()
+    #     df1.date=df1.date.apply(lambda i : str(int(i)))
+    #     print(df1.date)
+    #     df1.reset_index().to_csv('./data/000905.SH_1.csv',)
+    #     df1=slope_method1(df,18)
+    #     print(df1)
+    #     df1.day_slope=df1.day_slope.apply(lambda i:round(i,2))
+#         pfr1=pandas_profiling.ProfileReport(pd.DataFrame(df1.day_slope).reset_index())
+#         pfr1.to_file('./result/'+f.replace('.SH.mat','')+'_day_scope_report.html')#生成斜率报告
+        '''
+         RSRS 斜率指标交易策略为： 1. 计算 RSRS 斜率。 2. 如果斜率大于 1，则买入持有。 3. 如果斜率小于 0.75，则卖出手中持股平仓。 
+         
+        '''
+        df2_=slop_method2(df,18,600)
+        df2_=df2_.drop(['level_0','index'],axis=1)
+#         pfr2=pandas_profiling.ProfileReport(pd.DataFrame(df2_.z_score).reset_index())
+#         pfr2.to_file('./result/'+f.replace('.SH.mat','')+'_z_score_report.html')#生成斜率报告
+    #     print(df2_)
+    #     df2.z_score=df2.z_score.apply(lambda i:round(i,2))
+    #     pfr=pandas_profiling.ProfileReport(pd.DataFrame(df2.z_score).reset_index())
+    #     pfr.to_file('z_score_report.html')#生成标准分报告
+        '''
+                则 RSRS 标准分交易策略为： 1. 根据斜率计算标准分（参数 N=18,M=600）。 2. 如果标准分大于 S（参数 S=1），则买入持有。 3. 如果标准分小于-S，则卖出平仓。
+        '''
+    #     exchange_detail1=apply_strategic1(df1,1,0.75)
+        
+    #     base_net_value(df1)
+        net_value_slope_df=calcu_net_value(df1,method='slope')#计算slope净值
+        net_value_z_score_df=calcu_net_value(df2_,method='z_score')#计算z_score净值
+        df3['base_value']=df3.closed_price_today/df1.closed_price_today.iloc[0]
+        date=df3.date.values
+    #     print(len(net_value_slope_df['buy_sell']))
+    #     print(df3.base_value)
+    # #     print( net_value_z_score)
+#         plot_net_value(df3.base_value,net_value_slope_df,net_value_z_score_df,date)
+    #     statics_index(net_value_z_score_df)
+        statics_index(net_value_z_score_df)
+        
